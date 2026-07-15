@@ -36,7 +36,7 @@ jobs:
           echo "02b87cc64b1254a4a9d0939c9b9a29d40a301a2fabbb35bf75414302a931d888  /tmp/harmidi.tar.gz" | sha256sum --check
           tar -xzf /tmp/harmidi.tar.gz
           rm -rf .bootstrap .bootstrap-small
-          rm -f .github/workflows/bootstrap.yml bootstrap-debug.txt
+          rm -f bootstrap-debug.txt .github/workflows/ci.yml
 
       - name: Commit expanded implementation
         shell: bash
