@@ -1,0 +1,47 @@
+name: Diagnose staged harmonic patch
+
+on:
+  push:
+    branches:
+      - agent/cloudflare-prebuilt-wasm
+    paths:
+      - .analysis-patch-v2/**
+      - .github/workflows/patch-diagnostics.yml
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    if: ${{ !contains(github.event.head_commit.message, '[patch diagnostics]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/cloudflare-prebuilt-wasm
+          fetch-depth: 0
+
+      - name: Record exact payload checksums
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "sizes:"
+            wc -c .analysis-patch-v2/part-*
+            echo "part hashes:"
+            sha256sum .analysis-patch-v2/part-*
+            cat .analysis-patch-v2/part-00 .analysis-patch-v2/part-01 .analysis-patch-v2/part-02 .analysis-patch-v2/part-03 .analysis-patch-v2/part-04 .analysis-patch-v2/part-05 .analysis-patch-v2/part-06 > /tmp/analysis.b64
+            echo "combined:"
+            wc -c /tmp/analysis.b64
+            sha256sum /tmp/analysis.b64
+            base64 --decode /tmp/analysis.b64 > /tmp/analysis.rs
+            echo "decoded:"
+            wc -c /tmp/analysis.rs
+            sha256sum /tmp/analysis.rs
+          } > patch-diagnostics.txt 2>&1
+          cat patch-diagnostics.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add patch-diagnostics.txt
+          git commit -m "Record patch diagnostics [patch diagnostics]"
+          git push origin HEAD:agent/cloudflare-prebuilt-wasm
