@@ -6,13 +6,16 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -37,6 +40,20 @@ jobs:
 
       - name: Generate WASM package
         run: npm run wasm:build
+
+      - name: Commit generated WASM package
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f web/public/pkg
+          if git diff --cached --quiet; then
+            echo "Generated WASM package is already current."
+            exit 0
+          fi
+          git commit -m "Update generated WASM package [wasm generated]"
+          git push origin HEAD:${{ github.head_ref }}
 
       - name: Upload generated WASM package
         uses: actions/upload-artifact@v4
