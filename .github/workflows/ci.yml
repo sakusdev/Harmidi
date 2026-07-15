@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/harmidi-core
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: Install web dependencies
+        run: npm install
+
+      - name: Check Rust core
+        run: cargo check --manifest-path crates/harmidi-core/Cargo.toml --target wasm32-unknown-unknown
+
+      - name: Build application
+        run: npm run build
