@@ -35,18 +35,15 @@ jobs:
       - name: Check Rust core
         run: cargo check --quiet --manifest-path crates/harmidi-core/Cargo.toml --target wasm32-unknown-unknown
 
-      - name: Verify committed WASM package exists
-        run: |
-          test -s web/public/pkg/harmidi_core.js
-          test -s web/public/pkg/harmidi_core_bg.wasm
-
-      - name: Regenerate WASM package
+      - name: Generate WASM package
         run: npm run wasm:build
 
-      - name: Verify committed WASM package is current
-        run: |
-          git add -f web/public/pkg
-          git diff --cached --exit-code -- web/public/pkg
+      - name: Upload generated WASM package
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-wasm-package
+          path: web/public/pkg
+          if-no-files-found: error
 
       - name: Build application
         shell: bash
