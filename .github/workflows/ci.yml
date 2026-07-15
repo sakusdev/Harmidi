@@ -27,13 +27,29 @@ jobs:
           workspaces: crates/harmidi-core
 
       - name: Install wasm-pack
-        run: cargo install wasm-pack --locked
+        run: cargo install wasm-pack --locked --quiet
 
       - name: Install web dependencies
-        run: npm install
+        run: npm install --silent
 
       - name: Check Rust core
-        run: cargo check --manifest-path crates/harmidi-core/Cargo.toml --target wasm32-unknown-unknown
+        run: cargo check --quiet --manifest-path crates/harmidi-core/Cargo.toml --target wasm32-unknown-unknown
 
       - name: Build application
-        run: npm run build
+        shell: bash
+        run: |
+          set +e
+          npm run build > ci-build.log 2>&1
+          STATUS=$?
+          cat ci-build.log
+          echo "$STATUS" > ci-status.txt
+          exit "$STATUS"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-build-log
+          path: |
+            ci-build.log
+            ci-status.txt
