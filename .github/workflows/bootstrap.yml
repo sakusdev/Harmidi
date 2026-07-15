@@ -24,10 +24,25 @@ jobs:
       - name: Expand source tree
         shell: bash
         run: |
-          cat .bootstrap-small/chunk-* | base64 --decode > /tmp/harmidi.tar.gz
-          tar -xzf /tmp/harmidi.tar.gz
-          rm -rf .bootstrap .bootstrap-small
-          rm -f .github/workflows/bootstrap.yml
+          set +e
+          : > bootstrap-debug.txt
+          cat .bootstrap-small/chunk-* > /tmp/harmidi.b64
+          echo "base64 bytes: $(wc -c < /tmp/harmidi.b64)" >> bootstrap-debug.txt
+          sha256sum /tmp/harmidi.b64 >> bootstrap-debug.txt
+          base64 --decode /tmp/harmidi.b64 > /tmp/harmidi.tar.gz
+          echo "decode status: $?" >> bootstrap-debug.txt
+          echo "archive bytes: $(wc -c < /tmp/harmidi.tar.gz)" >> bootstrap-debug.txt
+          sha256sum /tmp/harmidi.tar.gz >> bootstrap-debug.txt
+          gzip -t /tmp/harmidi.tar.gz
+          GZIP_STATUS=$?
+          echo "gzip status: $GZIP_STATUS" >> bootstrap-debug.txt
+          if [ "$GZIP_STATUS" -eq 0 ]; then
+            tar -xzf /tmp/harmidi.tar.gz
+            echo "tar status: $?" >> bootstrap-debug.txt
+            rm -rf .bootstrap .bootstrap-small
+            rm -f .github/workflows/bootstrap.yml bootstrap-debug.txt
+          fi
+          exit 0
 
       - name: Commit expanded implementation
         shell: bash
