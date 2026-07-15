@@ -17,15 +17,25 @@ jobs:
           ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
 
-      - name: Apply staged analysis patch
-        if: ${{ hashFiles('.analysis-patch/part-00') != '' }}
+      - name: Apply verified harmonic suppression patch
+        if: ${{ hashFiles('.analysis-patch-v2/part-00') != '' }}
         shell: bash
         run: |
-          cat .analysis-patch/part-00 .analysis-patch/part-01 .analysis-patch/part-02 > /tmp/analysis.b64
+          set -euo pipefail
+          echo "fb4d387424b179aea438165954d4dbfec6192be9de3bcbef0bef9a07407b1b64  .analysis-patch-v2/part-00" | sha256sum --check
+          echo "c77e89874704fa580fd3d5efa4ab6ebae2befb59809209e804e2ea1472b5fc5d  .analysis-patch-v2/part-01" | sha256sum --check
+          echo "ed2c4cc28c4b1e7e129e98a694b4183b6a7431e35d2b4a7d1f020e0f710cf7d2  .analysis-patch-v2/part-02" | sha256sum --check
+          echo "ef162e9c65126712ab9c4b7edd3064875337a91d9960202ead034a1a8610097b  .analysis-patch-v2/part-03" | sha256sum --check
+          echo "1854b020d9809d3561180db8e985186ffcb3e1ef06ca89cd5777ad79911266a5  .analysis-patch-v2/part-04" | sha256sum --check
+          echo "d912660a7ecd68c3968411c21147525a12c523c181dfdd13c22b23f523d9f7c9  .analysis-patch-v2/part-05" | sha256sum --check
+          echo "98e5f6d942d048c0aab6c17383756cf046541b926a7d1284a28bba2c2d4bdb43  .analysis-patch-v2/part-06" | sha256sum --check
+          cat .analysis-patch-v2/part-00 .analysis-patch-v2/part-01 .analysis-patch-v2/part-02 .analysis-patch-v2/part-03 .analysis-patch-v2/part-04 .analysis-patch-v2/part-05 .analysis-patch-v2/part-06 > /tmp/analysis.b64
+          test "$(wc -c < /tmp/analysis.b64)" -eq 25300
           echo "866204c4ebf985ee5e4b22113953b14b3689102c9f6c2ae08f1f3df7297d63bd  /tmp/analysis.b64" | sha256sum --check
           base64 --decode /tmp/analysis.b64 > crates/harmidi-core/src/analysis.rs
+          test "$(wc -c < crates/harmidi-core/src/analysis.rs)" -eq 18973
           echo "a1a44884803db489468211c0241e18f30ee20afd21d294e04f42fd21af4c0415  crates/harmidi-core/src/analysis.rs" | sha256sum --check
-          rm -rf .analysis-patch
+          rm -rf .analysis-patch .analysis-patch-v2
           rm -f .github/workflows/apply-analysis-patch.yml
           cat > .github/workflows/ci.yml <<'FINAL_CI'
           name: CI
