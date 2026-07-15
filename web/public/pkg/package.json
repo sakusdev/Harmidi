@@ -1,0 +1,21 @@
+{
+  "name": "harmidi-core",
+  "type": "module",
+  "description": "Polyphonic audio analysis core for Harmidi",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sakusdev/Harmidi"
+  },
+  "files": [
+    "harmidi_core_bg.wasm",
+    "harmidi_core.js",
+    "harmidi_core.d.ts"
+  ],
+  "main": "harmidi_core.js",
+  "types": "harmidi_core.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
