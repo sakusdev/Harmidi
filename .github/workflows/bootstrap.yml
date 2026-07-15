@@ -1,0 +1,36 @@
+name: Bootstrap polyphonic MVP
+
+on:
+  push:
+    branches:
+      - agent/polyphonic-mvp
+
+permissions:
+  contents: write
+
+jobs:
+  unpack:
+    if: ${{ !contains(github.event.head_commit.message, '[bootstrap complete]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/polyphonic-mvp
+          fetch-depth: 0
+
+      - name: Expand source tree
+        shell: bash
+        run: |
+          cat .bootstrap-small/chunk-* | base64 --decode > /tmp/harmidi.tar.gz
+          tar -xzf /tmp/harmidi.tar.gz
+          rm -rf .bootstrap .bootstrap-small
+          rm -f .github/workflows/bootstrap.yml
+
+      - name: Commit expanded implementation
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "[bootstrap complete] Implement polyphonic WASM MVP"
+          git push origin HEAD:agent/polyphonic-mvp
