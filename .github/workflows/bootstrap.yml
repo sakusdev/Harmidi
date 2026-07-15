@@ -21,34 +21,18 @@ jobs:
           ref: agent/polyphonic-mvp
           fetch-depth: 0
 
-      - name: Expand source tree
+      - name: Inspect payload chunks
         shell: bash
         run: |
-          set +e
           : > bootstrap-debug.txt
-          cat .bootstrap-small/chunk-* > /tmp/harmidi.b64
-          echo "base64 bytes: $(wc -c < /tmp/harmidi.b64)" >> bootstrap-debug.txt
-          sha256sum /tmp/harmidi.b64 >> bootstrap-debug.txt
-          base64 --decode /tmp/harmidi.b64 > /tmp/harmidi.tar.gz
-          echo "decode status: $?" >> bootstrap-debug.txt
-          echo "archive bytes: $(wc -c < /tmp/harmidi.tar.gz)" >> bootstrap-debug.txt
-          sha256sum /tmp/harmidi.tar.gz >> bootstrap-debug.txt
-          gzip -t /tmp/harmidi.tar.gz
-          GZIP_STATUS=$?
-          echo "gzip status: $GZIP_STATUS" >> bootstrap-debug.txt
-          if [ "$GZIP_STATUS" -eq 0 ]; then
-            tar -xzf /tmp/harmidi.tar.gz
-            echo "tar status: $?" >> bootstrap-debug.txt
-            rm -rf .bootstrap .bootstrap-small
-            rm -f .github/workflows/bootstrap.yml bootstrap-debug.txt
-          fi
-          exit 0
+          wc -c .bootstrap-small/chunk-* >> bootstrap-debug.txt
+          sha256sum .bootstrap-small/chunk-* >> bootstrap-debug.txt
 
-      - name: Commit expanded implementation
+      - name: Commit diagnostics
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "[bootstrap complete] Implement polyphonic WASM MVP"
+          git add bootstrap-debug.txt
+          git commit -m "Record bootstrap chunk hashes"
           git push origin HEAD:agent/polyphonic-mvp
