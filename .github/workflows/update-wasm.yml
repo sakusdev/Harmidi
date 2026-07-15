@@ -1,0 +1,56 @@
+name: Update generated WASM
+
+on:
+  push:
+    branches:
+      - main
+      - agent/cloudflare-prebuilt-wasm
+    paths:
+      - crates/harmidi-core/**
+      - package.json
+      - .github/workflows/update-wasm.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: generated-wasm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[wasm generated]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/harmidi-core
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked --quiet
+
+      - name: Generate browser WASM package
+        run: npm run wasm:build
+
+      - name: Commit generated package
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f web/public/pkg
+          if git diff --cached --quiet; then
+            echo "Generated WASM package is already current."
+            exit 0
+          fi
+          git commit -m "Update generated WASM package [wasm generated]"
+          git push origin HEAD:${{ github.ref_name }}
