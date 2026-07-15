@@ -6,34 +6,13 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
-          fetch-depth: 0
-
-      - name: Remove temporary patch transport files
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -rf --ignore-unmatch .analysis-patch .analysis-patch-v2
-          git rm -f --ignore-unmatch patch-diagnostics.txt .github/workflows/apply-analysis-patch.yml
-          if git diff --cached --quiet; then
-            echo "No temporary patch files remain."
-          else
-            git commit -m "Remove harmonic patch transport files"
-            git push origin HEAD:${{ github.head_ref }}
-          fi
-
-      - name: Verify harmonic suppression source
-        run: echo "a1a44884803db489468211c0241e18f30ee20afd21d294e04f42fd21af4c0415  crates/harmidi-core/src/analysis.rs" | sha256sum --check
 
       - uses: actions/setup-node@v4
         with:
@@ -59,6 +38,11 @@ jobs:
       - name: Check Rust core for WASM
         run: cargo check --quiet --manifest-path crates/harmidi-core/Cargo.toml --target wasm32-unknown-unknown
 
+      - name: Verify committed WASM package exists
+        run: |
+          test -s web/public/pkg/harmidi_core.js
+          test -s web/public/pkg/harmidi_core_bg.wasm
+
       - name: Regenerate WASM package
         run: npm run wasm:build
 
@@ -68,7 +52,23 @@ jobs:
           git diff --cached --exit-code -- web/public/pkg
 
       - name: Build application
-        run: npm run build
+        shell: bash
+        run: |
+          set +e
+          npm run build > ci-build.log 2>&1
+          STATUS=$?
+          cat ci-build.log
+          echo "$STATUS" > ci-status.txt
+          exit "$STATUS"
 
       - name: Validate Cloudflare Workers bundle
         run: npx wrangler deploy --dry-run
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-build-log
+          path: |
+            ci-build.log
+            ci-status.txt
