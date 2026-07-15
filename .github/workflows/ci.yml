@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/harmidi-core
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked --quiet
+
+      - name: Install web dependencies
+        run: npm install --silent
+
+      - name: Check Rust core
+        run: cargo check --quiet --manifest-path crates/harmidi-core/Cargo.toml --target wasm32-unknown-unknown
+
+      - name: Build application
+        shell: bash
+        run: |
+          set +e
+          npm run build > ci-build.log 2>&1
+          STATUS=$?
+          cat ci-build.log
+          echo "$STATUS" > ci-status.txt
+          exit "$STATUS"
+
+      - name: Validate Cloudflare Workers bundle
+        run: npx wrangler deploy --dry-run
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-build-log
+          path: |
+            ci-build.log
+            ci-status.txt

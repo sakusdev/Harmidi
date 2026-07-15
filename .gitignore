@@ -1,0 +1,7 @@
+node_modules/
+dist/
+web/public/pkg/
+target/
+crates/harmidi-core/target/
+.DS_Store
+*.log

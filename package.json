@@ -1,0 +1,21 @@
+{
+  "name": "harmidi",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run wasm:build && vite --config vite.config.ts",
+    "dev:worker": "npm run build && wrangler dev",
+    "build": "npm run wasm:build && tsc --noEmit && vite build --config vite.config.ts",
+    "preview": "vite preview --config vite.config.ts",
+    "deploy": "npm run build && wrangler deploy",
+    "deploy:dry-run": "npm run build && wrangler deploy --dry-run",
+    "wasm:build": "wasm-pack build crates/harmidi-core --target web --out-dir ../../web/public/pkg --release",
+    "check:web": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.1.4",
+    "wrangler": "^4.0.0"
+  }
+}
