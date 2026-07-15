@@ -44,6 +44,8 @@ Detected note events
   └ MIDI file writer
 ```
 
+The production build is deployed as Cloudflare Workers Static Assets. Audio decoding, analysis, and MIDI generation remain entirely in the browser; Cloudflare only serves the compiled HTML, JavaScript, CSS, and WebAssembly files.
+
 ## Development
 
 Requirements:
@@ -66,7 +68,44 @@ Production build:
 npm run build
 ```
 
-The WASM package is generated into `web/public/pkg` and copied by Vite into the final static build.
+The WASM package is generated into `web/public/pkg` and copied by Vite into the final `dist` build.
+
+## Cloudflare Workers deployment
+
+Harmidi uses Workers Static Assets rather than Cloudflare Pages. The deployment configuration is in `wrangler.jsonc` and serves the Vite `dist` directory with SPA fallback enabled.
+
+Authenticate once:
+
+```bash
+npx wrangler login
+```
+
+Run the production build locally through the Workers runtime:
+
+```bash
+npm run dev:worker
+```
+
+Validate the upload without deploying:
+
+```bash
+npm run deploy:dry-run
+```
+
+Deploy:
+
+```bash
+npm run deploy
+```
+
+For Cloudflare Git integration, use:
+
+```text
+Build command: npm run build
+Deploy command: npx wrangler deploy
+```
+
+No server-side audio upload or storage binding is required for the current local-first MVP.
 
 ## Analysis controls
 
