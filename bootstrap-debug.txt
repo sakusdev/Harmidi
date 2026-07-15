@@ -1,0 +1,6 @@
+base64 bytes: 21384
+d5f4a54d737f4c6c5982d6fde3a6b85eceeffde43604863bdc65552f0434ff4e  /tmp/harmidi.b64
+decode status: 0
+archive bytes: 16037
+b99d9724b07cadb9bda693c547a281b1f827495545e1df935f008fe702d0810c  /tmp/harmidi.tar.gz
+gzip status: 1
