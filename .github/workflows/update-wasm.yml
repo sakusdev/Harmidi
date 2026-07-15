@@ -2,9 +2,8 @@ name: Update generated WASM
 
 on:
   push:
-    branches:
+    branches-ignore:
       - main
-      - agent/cloudflare-prebuilt-wasm
     paths:
       - crates/harmidi-core/**
       - package.json
