@@ -1,3 +1,5 @@
+export type AnalysisQuality = 'fast' | 'balanced' | 'accurate';
+
 export type AnalysisOptions = {
   fftSize: number;
   hopSize: number;
@@ -8,6 +10,11 @@ export type AnalysisOptions = {
   minNoteMs: number;
   targetSampleRate: number;
   harmonicEnhancement: boolean;
+  quality: AnalysisQuality;
+  useHpss: boolean;
+  useMultiresolution: boolean;
+  useResidual: boolean;
+  useTemporalTracking: boolean;
 };
 
 export type FramePitch = {
@@ -15,6 +22,12 @@ export type FramePitch = {
   frequencyHz: number;
   confidence: number;
   centsOffset: number;
+  spectralConfidence: number;
+  harmonicConfidence: number;
+  multiresolutionConfidence: number;
+  temporalConfidence: number;
+  independenceConfidence: number;
+  snrDb: number;
 };
 
 export type FrameSummary = {
@@ -31,6 +44,10 @@ export type DetectedNote = {
   velocity: number;
   confidence: number;
   centsOffset: number;
+  spectralConfidence: number;
+  harmonicConfidence: number;
+  temporalConfidence: number;
+  independenceConfidence: number;
 };
 
 export type AnalysisDiagnostics = {
@@ -41,6 +58,12 @@ export type AnalysisDiagnostics = {
   fftSize: number;
   hopSize: number;
   harmonicEnhancement: boolean;
+  quality: AnalysisQuality;
+  resolutionFftSizes: number[];
+  hpssEnabled: boolean;
+  residualExtractionEnabled: boolean;
+  temporalTrackingEnabled: boolean;
+  resampler: string;
 };
 
 export type AnalysisResult = {

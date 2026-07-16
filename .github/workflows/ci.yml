@@ -32,8 +32,14 @@ jobs:
       - name: Install web dependencies
         run: npm install --silent
 
+      - name: Test note evaluator
+        run: npm run test:benchmark
+
       - name: Test Rust core
-        run: cargo test --quiet --manifest-path crates/harmidi-core/Cargo.toml
+        shell: bash
+        run: |
+          set -o pipefail
+          RUST_BACKTRACE=1 cargo test --manifest-path crates/harmidi-core/Cargo.toml 2>&1 | tee rust-test.log
 
       - name: Check Rust core for WASM
         run: cargo check --quiet --manifest-path crates/harmidi-core/Cargo.toml --target wasm32-unknown-unknown
@@ -64,11 +70,12 @@ jobs:
       - name: Validate Cloudflare Workers bundle
         run: npx wrangler deploy --dry-run
 
-      - name: Upload build log
+      - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-build-log
+          name: ci-build-logs
           path: |
+            rust-test.log
             ci-build.log
             ci-status.txt

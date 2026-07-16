@@ -13,7 +13,9 @@
     "deploy": "npm run build && wrangler deploy",
     "deploy:dry-run": "npm run build && wrangler deploy --dry-run",
     "wasm:build": "wasm-pack build crates/harmidi-core --target web --out-dir ../../web/public/pkg --release",
-    "check:web": "tsc --noEmit"
+    "check:web": "tsc --noEmit",
+    "benchmark:notes": "node tools/evaluate-notes.mjs",
+    "test:benchmark": "node tools/evaluate-notes.test.mjs"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
