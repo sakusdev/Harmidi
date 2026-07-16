@@ -1,0 +1,58 @@
+name: Add reliability test diagnostics
+
+on:
+  push:
+    branches:
+      - agent/reliability-overhaul
+    paths:
+      - .github/workflows/debug-reliability-tests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[diagnostics added]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Add failed-test evidence output
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('crates/harmidi-core/src/analysis.rs')
+          text = path.read_text()
+          text = text.replace(
+            '''        let result = analyze(&audio, options.target_sample_rate, &options).unwrap();
+                assert!(result.notes.iter().any(|note| note.midi_note == 48));
+          ''',
+            '''        let result = analyze(&audio, options.target_sample_rate, &options).unwrap();
+                eprintln!("single notes: {:?}", result.notes);
+                eprintln!("single frame pitches: {:?}", result.frames.iter().filter(|frame| !frame.pitches.is_empty()).take(8).map(|frame| &frame.pitches).collect::<Vec<_>>());
+                assert!(result.notes.iter().any(|note| note.midi_note == 48));
+          ''')
+          text = text.replace(
+            '''        let result = analyze(&audio, options.target_sample_rate, &options).unwrap();
+                for midi in [60, 64, 67] {
+          ''',
+            '''        let result = analyze(&audio, options.target_sample_rate, &options).unwrap();
+                eprintln!("chord notes: {:?}", result.notes);
+                eprintln!("chord frame pitches: {:?}", result.frames.iter().filter(|frame| !frame.pitches.is_empty()).take(8).map(|frame| &frame.pitches).collect::<Vec<_>>());
+                for midi in [60, 64, 67] {
+          ''')
+          path.write_text(text)
+
+      - name: Remove workflow and commit
+        shell: bash
+        run: |
+          rm .github/workflows/debug-reliability-tests.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Add reliability test diagnostics [diagnostics added]"
+          git push origin HEAD:${{ github.ref_name }}
