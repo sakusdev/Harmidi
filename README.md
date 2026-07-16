@@ -4,23 +4,27 @@
 
 Harmidi is a local-first WebAssembly application that analyzes audio and converts overlapping pitched content into editable MIDI-note events. Audio never needs to leave the browser.
 
-## Current milestone: polyphonic MVP
+## Current milestone: interpretable polyphonic transcription
 
-This first implementation includes:
+The browser pipeline includes:
 
 - browser-side MP3/WAV/etc. decoding through the Web Audio API
 - Rust analysis core compiled to WebAssembly
-- STFT using `rustfft`
-- harmonic-salience scoring across MIDI-note candidates
-- lightweight temporal harmonic enhancement (an HPSS-inspired stage)
-- simultaneous pitch selection with configurable maximum polyphony
-- harmonic/octave suppression
-- per-note temporal tracking with hysteresis and short-gap merging
-- piano-roll visualization
-- Standard MIDI File export
+- anti-aliased windowed-sinc resampling
+- multi-resolution STFT using `rustfft`
+- harmonic/percussive soft-mask separation (HPSS)
+- MIDI-aligned log-frequency pitch evidence
+- fundamental and harmonic-series scoring
+- harmonic competition and octave false-positive suppression
+- iterative residual harmonic-template extraction
+- sub-bin frequency interpolation
+- calibrated confidence components for every detected note
+- onset-aware Viterbi-style temporal note tracking
+- note-level harmonic duplicate removal and polyphony enforcement
+- piano-roll visualization and Standard MIDI File export
 - analysis in a Web Worker so the UI stays responsive
 
-This is an intentionally interpretable DSP baseline. It does **not** yet claim studio-grade transcription of dense mastered songs.
+This remains an interpretable DSP system rather than a claim of perfect studio-grade transcription. Dense mastered mixes, missing fundamentals, heavy distortion, and strong source overlap remain difficult cases.
 
 ## Architecture
 
@@ -32,14 +36,18 @@ Mono Float32 PCM
 Web Worker
   ↓
 Rust / WebAssembly
-  ├ resampling + normalization
-  ├ STFT
-  ├ temporal harmonic enhancement
-  ├ multi-pitch harmonic salience
-  ├ harmonic suppression
-  └ temporal note tracking
+  ├ band-limited resampling + normalization
+  ├ multi-resolution STFT
+  ├ HPSS harmonic/percussive masks
+  ├ MIDI-aligned pitch and harmonic evidence
+  ├ cross-resolution confidence fusion
+  ├ harmonic competition
+  ├ residual iterative note extraction
+  ├ temporal confidence refinement
+  ├ Viterbi note-state tracking
+  └ note-level cleanup / polyphony limiting
   ↓
-Detected note events
+Detected note events + confidence evidence
   ├ piano-roll UI
   └ MIDI file writer
 ```
@@ -59,70 +67,80 @@ Requirements:
 rustup target add wasm32-unknown-unknown
 cargo install wasm-pack --locked
 npm install
-npm run dev
+npm run dev:full
 ```
 
-Production build:
+Node-only production build using the committed WASM package:
 
 ```bash
 npm run build
 ```
 
-The WASM package is generated into `web/public/pkg` and copied by Vite into the final `dist` build.
+Full build after changing Rust:
+
+```bash
+npm run build:full
+```
+
+The WASM package is generated into `web/public/pkg` and copied by Vite into the final `dist` build. GitHub Actions verifies that the committed package matches the Rust source.
 
 ## Cloudflare Workers deployment
 
 Harmidi uses Workers Static Assets rather than Cloudflare Pages. The deployment configuration is in `wrangler.jsonc` and serves the Vite `dist` directory with SPA fallback enabled.
 
-Authenticate once:
-
 ```bash
 npx wrangler login
-```
-
-Run the production build locally through the Workers runtime:
-
-```bash
 npm run dev:worker
-```
-
-Validate the upload without deploying:
-
-```bash
 npm run deploy:dry-run
-```
-
-Deploy:
-
-```bash
 npm run deploy
 ```
 
-For Cloudflare Git integration, use:
+For Cloudflare Git integration:
 
 ```text
 Build command: npm run build
 Deploy command: npx wrangler deploy
 ```
 
-No server-side audio upload or storage binding is required for the current local-first MVP.
+No server-side audio upload or storage binding is required.
 
 ## Analysis controls
 
-- **Maximum polyphony**: maximum note candidates retained in one analysis frame.
-- **Sensitivity**: higher values reject weaker note candidates.
-- **Pitch range**: limits candidate scoring and reduces false positives.
-- **Minimum note duration**: rejects very short detections.
-- **Harmonic enhancement**: favors frequency components that persist over neighboring frames and suppresses transient percussion.
+- **Quality**: Fast uses one FFT resolution; Balanced combines short/primary/long windows; Accurate combines up to 2048/4096/8192/16384-point analyses.
+- **Maximum polyphony**: maximum simultaneous notes retained after temporal cleanup.
+- **Sensitivity**: higher values reject weaker evidence.
+- **Pitch range**: limits candidate scoring and reduces impossible detections.
+- **Minimum note duration**: rejects very short events.
+- **HPSS**: separates persistent harmonic energy from broadband transients.
+- **Multi-resolution STFT**: requires agreement across time/frequency resolutions.
+- **Residual extraction**: softly subtracts explained harmonics before selecting another note.
+- **Temporal tracking**: optimizes note states across frames instead of treating frames independently.
+
+The result list displays total confidence and its main evidence components:
+
+- `S`: spectral evidence
+- `H`: harmonic-series evidence
+- `T`: temporal evidence
+- `I`: independence from another note's harmonic series
+
+See [docs/reliability.md](docs/reliability.md) for implementation details and evaluation guidance.
+
+## Reliability evaluation
+
+Compare reference and predicted note JSON files with:
+
+```bash
+npm run benchmark:notes -- reference.json prediction.json
+```
+
+The evaluator reports precision, recall, F1, mean onset error, and mean duration intersection-over-union. Detector threshold changes should be evaluated against a varied real-audio corpus rather than accepted from one example.
 
 ## Roadmap
 
-1. Improve onset-aware note splitting and velocity estimation.
-2. Add true median-mask HPSS with separate harmonic/percussive previews.
-3. Add CQT/chroma evidence and weighted estimator fusion.
-4. Add optional ONNX/WebGPU two-stem and four-stem source separation.
-5. Add stem-specialized transcription for vocals, bass, drums, and harmonic instruments.
-6. Add editable piano-roll operations and beat-aware quantization.
+1. Add optional source separation with WebGPU/ONNX and original-vs-stem consensus.
+2. Add specialized vocal, bass, piano, guitar, and percussion presets.
+3. Add beat-aware quantization and editable piano-roll operations.
+4. Grow the public real-audio benchmark corpus and publish per-category metrics.
 
 ## License
 
