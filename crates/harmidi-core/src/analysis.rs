@@ -891,6 +891,8 @@ mod tests {
         let options = default_options();
         let audio = harmonic_tone(48, 0.8, options.target_sample_rate, 1.0);
         let result = analyze(&audio, options.target_sample_rate, &options).unwrap();
+        eprintln!("single notes: {:?}", result.notes);
+        eprintln!("single frames: {:?}", result.frames.iter().filter(|frame| !frame.pitches.is_empty()).take(8).map(|frame| &frame.pitches).collect::<Vec<_>>());
         assert!(result.notes.iter().any(|note| note.midi_note == 48));
         assert!(!result.notes.iter().any(|note| note.midi_note == 60));
         assert!(!result.notes.iter().any(|note| note.midi_note == 67));
@@ -905,6 +907,8 @@ mod tests {
             harmonic_tone(67, 0.9, options.target_sample_rate, 0.82),
         ]);
         let result = analyze(&audio, options.target_sample_rate, &options).unwrap();
+        eprintln!("chord notes: {:?}", result.notes);
+        eprintln!("chord frames: {:?}", result.frames.iter().filter(|frame| !frame.pitches.is_empty()).take(8).map(|frame| &frame.pitches).collect::<Vec<_>>());
         for midi in [60, 64, 67] {
             assert!(result.notes.iter().any(|note| note.midi_note == midi), "missing {midi}");
         }
