@@ -2,7 +2,12 @@ import './style.css';
 import { decodeAudioFile } from './audio';
 import { createMidiFile } from './midi';
 import { drawPianoRoll, midiName } from './piano-roll';
-import type { AnalysisOptions, AnalysisResult, WorkerResponse } from './types';
+import type {
+  AnalysisOptions,
+  AnalysisQuality,
+  AnalysisResult,
+  WorkerResponse,
+} from './types';
 
 const app = document.querySelector<HTMLElement>('#app');
 if (app === null) throw new Error('Application root was not found.');
@@ -12,7 +17,7 @@ app.innerHTML = `
     <div>
       <p class="eyebrow">LOCAL · RUST · WEBASSEMBLY</p>
       <h1>Harmidi</h1>
-      <p class="lead">音声の中から、重なったノートを見つける。</p>
+      <p class="lead">音声の中から、重なったノートを根拠付きで見つける。</p>
     </div>
     <span class="status-pill" id="engine-status">WASM待機中</span>
   </section>
@@ -29,6 +34,13 @@ app.innerHTML = `
   <section class="workspace">
     <aside class="panel controls">
       <h2>解析設定</h2>
+      <label>解析品質
+        <select id="quality">
+          <option value="fast">高速</option>
+          <option value="balanced" selected>標準</option>
+          <option value="accurate">高精度</option>
+        </select>
+      </label>
       <label>最大同時発音数 <output id="polyphony-value">6</output>
         <input id="polyphony" type="range" min="1" max="12" value="6" />
       </label>
@@ -46,11 +58,26 @@ app.innerHTML = `
       <label>最短ノート長（ms）
         <input id="min-note" type="number" min="30" max="1000" step="10" value="90" />
       </label>
-      <label class="check-row">
-        <input id="harmonic" type="checkbox" checked />
-        <span>調波強調（軽量HPSS）</span>
-      </label>
-      <button id="analyze" class="primary" disabled>多音解析を開始</button>
+      <fieldset class="feature-options">
+        <legend>信頼性処理</legend>
+        <label class="check-row">
+          <input id="hpss" type="checkbox" checked />
+          <span>調波・打楽器分離（HPSS）</span>
+        </label>
+        <label class="check-row">
+          <input id="multiresolution" type="checkbox" checked />
+          <span>マルチ解像度STFT</span>
+        </label>
+        <label class="check-row">
+          <input id="residual" type="checkbox" checked />
+          <span>残差反復による多音抽出</span>
+        </label>
+        <label class="check-row">
+          <input id="temporal" type="checkbox" checked />
+          <span>時間方向の状態追跡</span>
+        </label>
+      </fieldset>
+      <button id="analyze" class="primary" disabled>高信頼度解析を開始</button>
       <button id="export" disabled>MIDIを書き出す</button>
       <label>BPM（MIDI用）
         <input id="bpm" type="number" min="20" max="300" value="120" />
@@ -65,6 +92,7 @@ app.innerHTML = `
         </div>
         <div class="spinner" id="spinner" hidden></div>
       </div>
+      <div class="diagnostics" id="diagnostics" hidden></div>
       <canvas id="piano-roll"></canvas>
       <div class="note-list" id="note-list"></div>
     </section>
@@ -84,6 +112,7 @@ const analyzeButton = requireElement<HTMLButtonElement>('#analyze');
 const exportButton = requireElement<HTMLButtonElement>('#export');
 const engineStatus = requireElement<HTMLSpanElement>('#engine-status');
 const summary = requireElement<HTMLParagraphElement>('#summary');
+const diagnostics = requireElement<HTMLDivElement>('#diagnostics');
 const spinner = requireElement<HTMLDivElement>('#spinner');
 const canvas = requireElement<HTMLCanvasElement>('#piano-roll');
 const noteList = requireElement<HTMLDivElement>('#note-list');
@@ -111,13 +140,15 @@ worker.addEventListener('message', (event: MessageEvent<WorkerResponse>) => {
   if (event.data.type === 'error') {
     engineStatus.textContent = '解析エラー';
     summary.textContent = event.data.message;
+    diagnostics.hidden = true;
     return;
   }
 
   currentResult = event.data.result;
   exportButton.disabled = currentResult.notes.length === 0;
   engineStatus.textContent = '解析完了';
-  summary.textContent = `${currentResult.notes.length}ノート · ${currentResult.durationSeconds.toFixed(1)}秒 · ${currentResult.diagnostics.frameCount}フレーム`;
+  const quality = qualityLabel(currentResult.diagnostics.quality);
+  summary.textContent = `${currentResult.notes.length}ノート · ${currentResult.durationSeconds.toFixed(1)}秒 · ${quality} · ${currentResult.diagnostics.frameCount}フレーム`;
   renderResult(currentResult);
 });
 
@@ -131,6 +162,7 @@ sensitivity.addEventListener('input', () => {
 async function loadFile(file: File): Promise<void> {
   engineStatus.textContent = '音声をデコード中';
   summary.textContent = 'ブラウザ内でPCMへ変換しています…';
+  diagnostics.hidden = true;
   currentResult = null;
   exportButton.disabled = true;
 
@@ -181,24 +213,31 @@ analyzeButton.addEventListener('click', () => {
 
   const minMidi = Number(requireElement<HTMLInputElement>('#min-midi').value);
   const maxMidi = Number(requireElement<HTMLInputElement>('#max-midi').value);
+  const quality = requireElement<HTMLSelectElement>('#quality').value as AnalysisQuality;
   const options: AnalysisOptions = {
     fftSize: 4096,
-    hopSize: 512,
+    hopSize: quality === 'accurate' ? 256 : 512,
     minMidi: Math.min(minMidi, maxMidi - 1),
     maxMidi: Math.max(maxMidi, minMidi + 1),
     maxPolyphony: Number(polyphony.value),
     sensitivity: Number(sensitivity.value) / 100,
     minNoteMs: Number(requireElement<HTMLInputElement>('#min-note').value),
-    targetSampleRate: 22_050,
-    harmonicEnhancement: requireElement<HTMLInputElement>('#harmonic').checked,
+    targetSampleRate: quality === 'accurate' ? 32_000 : 22_050,
+    harmonicEnhancement: requireElement<HTMLInputElement>('#hpss').checked,
+    quality,
+    useHpss: requireElement<HTMLInputElement>('#hpss').checked,
+    useMultiresolution: requireElement<HTMLInputElement>('#multiresolution').checked,
+    useResidual: requireElement<HTMLInputElement>('#residual').checked,
+    useTemporalTracking: requireElement<HTMLInputElement>('#temporal').checked,
   };
 
   const samples = currentSamples.slice();
   spinner.hidden = false;
+  diagnostics.hidden = true;
   analyzeButton.disabled = true;
   exportButton.disabled = true;
-  engineStatus.textContent = '多音解析中';
-  summary.textContent = 'STFT・調波スコア・時間追跡を実行しています…';
+  engineStatus.textContent = `${qualityLabel(quality)}で解析中`;
+  summary.textContent = 'HPSS・マルチ解像度STFT・残差抽出・時間追跡を実行しています…';
   worker.postMessage(
     { type: 'analyze', samples, sampleRate: currentSampleRate, options },
     [samples.buffer],
@@ -222,8 +261,30 @@ exportButton.addEventListener('click', () => {
   URL.revokeObjectURL(url);
 });
 
+function qualityLabel(quality: AnalysisQuality): string {
+  switch (quality) {
+    case 'fast': return '高速';
+    case 'accurate': return '高精度';
+    default: return '標準';
+  }
+}
+
+function percent(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
 function renderResult(result: AnalysisResult): void {
   drawPianoRoll(canvas, result.notes, result.durationSeconds);
+  const diagnosticItems = [
+    `FFT ${result.diagnostics.resolutionFftSizes.join(' / ')}`,
+    result.diagnostics.hpssEnabled ? 'HPSS ON' : 'HPSS OFF',
+    result.diagnostics.residualExtractionEnabled ? '残差抽出 ON' : '残差抽出 OFF',
+    result.diagnostics.temporalTrackingEnabled ? '時間追跡 ON' : '時間追跡 OFF',
+    `Resampler ${result.diagnostics.resampler}`,
+  ];
+  diagnostics.innerHTML = diagnosticItems.map((item) => `<span>${item}</span>`).join('');
+  diagnostics.hidden = false;
+
   const visibleNotes = result.notes.slice(0, 120);
   noteList.innerHTML = visibleNotes
     .map(
@@ -231,8 +292,11 @@ function renderResult(result: AnalysisResult): void {
         <div class="note-row">
           <strong>${midiName(note.midiNote)}</strong>
           <span>${note.startSeconds.toFixed(2)}–${note.endSeconds.toFixed(2)} s</span>
-          <span>${Math.round(note.confidence * 100)}%</span>
+          <span class="confidence-total">${percent(note.confidence)}</span>
           <span>${note.centsOffset >= 0 ? '+' : ''}${note.centsOffset.toFixed(1)} cent</span>
+          <span class="confidence-breakdown">
+            S ${percent(note.spectralConfidence)} · H ${percent(note.harmonicConfidence)} · T ${percent(note.temporalConfidence)} · I ${percent(note.independenceConfidence)}
+          </span>
         </div>
       `,
     )
