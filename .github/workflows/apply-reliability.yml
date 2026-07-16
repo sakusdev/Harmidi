@@ -1,0 +1,50 @@
+name: Apply reliability overhaul
+
+on:
+  push:
+    branches:
+      - agent/reliability-overhaul
+    paths:
+      - .reliability-patch/**
+      - .github/workflows/apply-reliability.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-reliability-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[reliability applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Decode verified Rust sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode .reliability-patch/analysis.rs.gz.b64 | gzip --decompress > crates/harmidi-core/src/analysis.rs
+          base64 --decode .reliability-patch/tracking.rs.gz.b64 | gzip --decompress > crates/harmidi-core/src/tracking.rs
+          base64 --decode .reliability-patch/dsp.rs.gz.b64 | gzip --decompress > crates/harmidi-core/src/dsp.rs
+          echo "ca056ee734c175cf63435a53f9e2015024e058b3bed05bccae0970d8e73c655a  crates/harmidi-core/src/analysis.rs" | sha256sum --check
+          echo "69777e022e1557e156f57984ad33b8bda4a5a91a8a76cc8950324629c7238642  crates/harmidi-core/src/tracking.rs" | sha256sum --check
+          echo "4316db4105815ed2a3573cb6bb58e8c7a17800eddde5d5c8505b0a9899dc8377  crates/harmidi-core/src/dsp.rs" | sha256sum --check
+
+      - name: Commit reliability core
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .reliability-patch
+          rm -f .github/workflows/apply-reliability.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Overhaul analysis reliability [reliability applied]"
+          git push origin HEAD:${{ github.ref_name }}
