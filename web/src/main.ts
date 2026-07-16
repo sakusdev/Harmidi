@@ -170,6 +170,70 @@ sensitivity.addEventListener('input', () => {
   sensitivityValue.value = `${sensitivity.value}%`;
 });
 
+type Preset = {
+  quality: AnalysisQuality;
+  polyphony: number;
+  sensitivity: number;
+  minMidi: number;
+  maxMidi: number;
+  minNoteMs: number;
+  hpss: boolean;
+  multiresolution: boolean;
+  residual: boolean;
+  temporal: boolean;
+};
+
+const generalPreset: Preset = {
+  quality: 'balanced', polyphony: 6, sensitivity: 58,
+  minMidi: 36, maxMidi: 96, minNoteMs: 90,
+  hpss: true, multiresolution: true, residual: true, temporal: true,
+};
+
+const presets: Record<string, Preset> = {
+  general: generalPreset,
+  vocal: {
+    quality: 'balanced', polyphony: 1, sensitivity: 48,
+    minMidi: 45, maxMidi: 88, minNoteMs: 65,
+    hpss: true, multiresolution: true, residual: false, temporal: true,
+  },
+  bass: {
+    quality: 'accurate', polyphony: 1, sensitivity: 48,
+    minMidi: 24, maxMidi: 64, minNoteMs: 85,
+    hpss: true, multiresolution: true, residual: false, temporal: true,
+  },
+  piano: {
+    quality: 'accurate', polyphony: 10, sensitivity: 57,
+    minMidi: 21, maxMidi: 108, minNoteMs: 55,
+    hpss: true, multiresolution: true, residual: true, temporal: true,
+  },
+  guitar: {
+    quality: 'balanced', polyphony: 6, sensitivity: 56,
+    minMidi: 40, maxMidi: 88, minNoteMs: 65,
+    hpss: true, multiresolution: true, residual: true, temporal: true,
+  },
+  dense: {
+    quality: 'accurate', polyphony: 8, sensitivity: 66,
+    minMidi: 32, maxMidi: 100, minNoteMs: 105,
+    hpss: true, multiresolution: true, residual: true, temporal: true,
+  },
+};
+
+preset.addEventListener('change', () => {
+  const selected = presets[preset.value] ?? generalPreset;
+  requireElement<HTMLSelectElement>('#quality').value = selected.quality;
+  polyphony.value = String(selected.polyphony);
+  polyphonyValue.value = polyphony.value;
+  sensitivity.value = String(selected.sensitivity);
+  sensitivityValue.value = `${selected.sensitivity}%`;
+  requireElement<HTMLInputElement>('#min-midi').value = String(selected.minMidi);
+  requireElement<HTMLInputElement>('#max-midi').value = String(selected.maxMidi);
+  requireElement<HTMLInputElement>('#min-note').value = String(selected.minNoteMs);
+  requireElement<HTMLInputElement>('#hpss').checked = selected.hpss;
+  requireElement<HTMLInputElement>('#multiresolution').checked = selected.multiresolution;
+  requireElement<HTMLInputElement>('#residual').checked = selected.residual;
+  requireElement<HTMLInputElement>('#temporal').checked = selected.temporal;
+});
+
 async function loadFile(file: File): Promise<void> {
   engineStatus.textContent = '音声をデコード中';
   summary.textContent = 'ブラウザ内でPCMへ変換しています…';
