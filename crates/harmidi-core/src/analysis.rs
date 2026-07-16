@@ -358,10 +358,22 @@ fn compute_frame_rms(
 
 fn adaptive_silence_floor(frame_rms: &[f32]) -> f32 {
     let mut values = frame_rms.to_vec();
-    let noise = percentile(&mut values, 0.20);
+    let low = percentile(&mut values, 0.10);
     let mut values = frame_rms.to_vec();
-    let typical = percentile(&mut values, 0.65);
-    (noise * 2.2).max(typical * 0.035).max(0.0008)
+    let typical = percentile(&mut values, 0.65).max(1.0e-8);
+    let low_to_typical = low / typical;
+
+    // A high low/typical ratio means the clip contains a continuous
+    // signal and no representative silence. In that case the lower
+    // percentile must not be treated as a noise-only measurement.
+    if low_to_typical >= 0.55 {
+        (typical * 0.12).max(0.0008)
+    } else {
+        (low * 2.2)
+            .max(typical * 0.03)
+            .min(typical * 0.35)
+            .max(0.0008)
+    }
 }
 
 fn apply_hpss(primary: &Spectrogram, quality: AnalysisQuality) -> (Spectrogram, Vec<f32>) {
@@ -891,8 +903,6 @@ mod tests {
         let options = default_options();
         let audio = harmonic_tone(48, 0.8, options.target_sample_rate, 1.0);
         let result = analyze(&audio, options.target_sample_rate, &options).unwrap();
-        eprintln!("single notes: {:?}", result.notes);
-        eprintln!("single frames: {:?}", result.frames.iter().filter(|frame| !frame.pitches.is_empty()).take(8).map(|frame| &frame.pitches).collect::<Vec<_>>());
         assert!(result.notes.iter().any(|note| note.midi_note == 48));
         assert!(!result.notes.iter().any(|note| note.midi_note == 60));
         assert!(!result.notes.iter().any(|note| note.midi_note == 67));
@@ -907,8 +917,6 @@ mod tests {
             harmonic_tone(67, 0.9, options.target_sample_rate, 0.82),
         ]);
         let result = analyze(&audio, options.target_sample_rate, &options).unwrap();
-        eprintln!("chord notes: {:?}", result.notes);
-        eprintln!("chord frames: {:?}", result.frames.iter().filter(|frame| !frame.pitches.is_empty()).take(8).map(|frame| &frame.pitches).collect::<Vec<_>>());
         for midi in [60, 64, 67] {
             assert!(result.notes.iter().any(|note| note.midi_note == midi), "missing {midi}");
         }
