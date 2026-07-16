@@ -208,108 +208,253 @@ fn apply_temporal_harmonic_enhancement(
     }
 }
 
+#[derive(Debug, Clone)]
+struct PitchEvidence {
+    midi: u8,
+    score: f32,
+    direct: f32,
+    harmonics: Vec<f32>,
+    normalized: f32,
+    adjusted: f32,
+}
+
 fn detect_frame_pitches(
     spectrum: &[f32],
     sample_rate: u32,
     options: &AnalysisOptions,
 ) -> Vec<FramePitch> {
     let midi_count = options.max_midi as usize - options.min_midi as usize + 1;
-    let mut scores = vec![0.0_f32; midi_count];
     let nyquist = sample_rate as f32 / 2.0;
     let bin_hz = sample_rate as f32 / options.fft_size as f32;
+    let mut evidence = Vec::with_capacity(midi_count);
 
     for midi in options.min_midi..=options.max_midi {
         let fundamental = midi_to_frequency(midi);
+        let mut harmonics = Vec::with_capacity(10);
         let mut weighted_sum = 0.0_f32;
         let mut weight_total = 0.0_f32;
+        let mut coverage = 0_usize;
 
-        for harmonic in 1..=8 {
+        for harmonic in 1..=10 {
             let frequency = fundamental * harmonic as f32;
             if frequency >= nyquist {
                 break;
             }
             let center_bin = (frequency / bin_hz).round() as usize;
-            let (_, magnitude) = local_peak(spectrum, center_bin, 1);
+            let contrast = spectral_contrast(spectrum, center_bin);
             let weight = if harmonic == 1 {
-                1.35
+                1.75
             } else {
-                1.0 / (harmonic as f32).sqrt()
+                1.0 / (harmonic as f32).powf(0.72)
             };
-            weighted_sum += magnitude * weight;
+            harmonics.push(contrast);
+            weighted_sum += contrast * weight;
             weight_total += weight;
+            if contrast > 0.08 {
+                coverage += 1;
+            }
         }
 
-        let index = midi as usize - options.min_midi as usize;
-        scores[index] = if weight_total > 0.0 {
-            weighted_sum / weight_total
+        let direct = harmonics.first().copied().unwrap_or(0.0);
+        let score = if weight_total > 0.0 {
+            direct * 1.25
+                + weighted_sum / weight_total.powf(0.58)
+                + coverage as f32 * 0.035
         } else {
             0.0
         };
+
+        evidence.push(PitchEvidence {
+            midi,
+            score,
+            direct,
+            harmonics,
+            normalized: 0.0,
+            adjusted: 0.0,
+        });
     }
 
-    let maximum = scores.iter().copied().fold(0.0_f32, f32::max);
+    let maximum = evidence
+        .iter()
+        .map(|candidate| candidate.score)
+        .fold(0.0_f32, f32::max);
     if maximum <= 1.0e-6 {
         return Vec::new();
     }
 
     let threshold_ratio = 0.17 + options.sensitivity * 0.38;
-    let mut candidates: Vec<(u8, f32)> = scores
-        .iter()
-        .enumerate()
-        .filter_map(|(index, score)| {
-            let left = index.checked_sub(1).map_or(0.0, |value| scores[value]);
-            let right = scores.get(index + 1).copied().unwrap_or(0.0);
-            let is_local_peak = *score >= left && *score >= right;
-            let normalized = *score / maximum;
-            (is_local_peak && normalized >= threshold_ratio)
-                .then_some((options.min_midi + index as u8, normalized))
-        })
-        .collect();
+    let mut candidates = Vec::new();
+    for (index, candidate) in evidence.iter().enumerate() {
+        let left = index
+            .checked_sub(1)
+            .map_or(0.0, |value| evidence[value].score);
+        let right = evidence.get(index + 1).map_or(0.0, |value| value.score);
+        let normalized = candidate.score / maximum;
 
-    candidates.sort_by(|left, right| right.1.total_cmp(&left.1));
+        // Strict on the lower neighbor collapses low-frequency plateaus where
+        // adjacent MIDI notes resolve to the same FFT bin.
+        if candidate.score > left
+            && candidate.score >= right
+            && normalized >= threshold_ratio
+            && candidate.direct > 1.0e-5
+        {
+            let mut candidate = candidate.clone();
+            candidate.normalized = normalized;
+            candidate.adjusted = normalized;
+            candidates.push(candidate);
+        }
+    }
 
-    let mut selected: Vec<(u8, f32)> = Vec::with_capacity(options.max_polyphony);
-    for candidate in candidates {
-        if selected.len() >= options.max_polyphony {
-            break;
+    // Evaluate every candidate against every plausible lower fundamental before
+    // sorting. The previous implementation only compared against already selected
+    // notes, so a loud octave harmonic could be selected first and escape removal.
+    let snapshot = candidates.clone();
+    for candidate in &mut candidates {
+        let mut penalty = 1.0_f32;
+
+        for lower in &snapshot {
+            if lower.midi >= candidate.midi {
+                continue;
+            }
+            let Some(order) = harmonic_order(lower.midi, candidate.midi) else {
+                continue;
+            };
+            if lower.normalized < candidate.normalized * 0.42 {
+                continue;
+            }
+            if has_independent_upper_support(candidate, lower, order) {
+                continue;
+            }
+
+            let dominance = ((lower.normalized / candidate.normalized.max(1.0e-6) - 0.35)
+                / 0.75)
+                .clamp(0.0, 1.0);
+            let maximum_suppression = if order <= 4 { 0.86 } else { 0.92 };
+            penalty *= (1.0 - maximum_suppression * dominance).clamp(0.04, 1.0);
         }
 
-        let is_likely_harmonic = selected.iter().any(|(lower_midi, lower_score)| {
-            if *lower_midi >= candidate.0 {
-                return false;
-            }
-            let ratio = midi_to_frequency(candidate.0) / midi_to_frequency(*lower_midi);
-            let nearest_harmonic = ratio.round();
-            let close_to_harmonic = (ratio - nearest_harmonic).abs() < 0.035 && nearest_harmonic >= 2.0;
-            close_to_harmonic && candidate.1 < *lower_score * 0.72
-        });
+        candidate.adjusted = candidate.normalized * penalty;
+    }
 
-        if !is_likely_harmonic {
-            selected.push(candidate);
+    candidates.sort_by(|left, right| {
+        right
+            .adjusted
+            .total_cmp(&left.adjusted)
+            .then(left.midi.cmp(&right.midi))
+    });
+
+    let mut selected: Vec<PitchEvidence> = Vec::with_capacity(options.max_polyphony);
+    for candidate in candidates {
+        if candidate.adjusted < threshold_ratio {
+            continue;
+        }
+        if selected
+            .iter()
+            .any(|existing| existing.midi.abs_diff(candidate.midi) <= 1)
+        {
+            continue;
+        }
+
+        selected.push(candidate);
+        if selected.len() >= options.max_polyphony {
+            break;
         }
     }
 
     selected
         .into_iter()
-        .map(|(midi, confidence)| {
-            let expected_frequency = midi_to_frequency(midi);
+        .map(|candidate| {
+            let expected_frequency = midi_to_frequency(candidate.midi);
             let center_bin = (expected_frequency / bin_hz).round() as usize;
             let (peak_bin, _) = local_peak(spectrum, center_bin, 2);
             let measured_frequency = peak_bin as f32 * bin_hz;
             let measured_midi = if measured_frequency > 0.0 {
                 frequency_to_midi_float(measured_frequency)
             } else {
-                midi as f32
+                candidate.midi as f32
             };
 
             FramePitch {
-                midi_note: midi,
+                midi_note: candidate.midi,
                 frequency_hz: measured_frequency,
-                confidence: confidence.clamp(0.0, 1.0),
-                cents_offset: ((measured_midi - midi as f32) * 100.0).clamp(-100.0, 100.0),
+                confidence: candidate.adjusted.clamp(0.0, 1.0),
+                cents_offset: ((measured_midi - candidate.midi as f32) * 100.0)
+                    .clamp(-100.0, 100.0),
             }
         })
         .collect()
+}
+
+fn spectral_contrast(spectrum: &[f32], center_bin: usize) -> f32 {
+    if spectrum.is_empty() {
+        return 0.0;
+    }
+
+    let (_, peak) = local_peak(spectrum, center_bin, 1);
+    let start = center_bin.saturating_sub(8);
+    let end = (center_bin + 8).min(spectrum.len() - 1);
+    let mut floor_samples = Vec::with_capacity(12);
+
+    for (bin, value) in spectrum.iter().enumerate().take(end + 1).skip(start) {
+        if bin.abs_diff(center_bin) > 2 {
+            floor_samples.push(*value);
+        }
+    }
+
+    let floor = median(&mut floor_samples);
+    (peak - floor).max(0.0)
+}
+
+fn harmonic_order(lower_midi: u8, upper_midi: u8) -> Option<usize> {
+    let interval = upper_midi as f32 - lower_midi as f32;
+    let mut best: Option<(usize, f32)> = None;
+
+    for order in 2..=10 {
+        let expected_interval = 12.0 * (order as f32).log2();
+        let error = (interval - expected_interval).abs();
+        if error <= 0.5 && best.is_none_or(|(_, best_error)| error < best_error) {
+            best = Some((order, error));
+        }
+    }
+
+    best.map(|(order, _)| order)
+}
+
+fn has_independent_upper_support(
+    upper: &PitchEvidence,
+    lower: &PitchEvidence,
+    harmonic_order: usize,
+) -> bool {
+    let harmonic_value = lower
+        .harmonics
+        .get(harmonic_order - 1)
+        .copied()
+        .unwrap_or(upper.direct);
+    let mut neighbors = Vec::with_capacity(2);
+
+    if harmonic_order >= 2
+        && let Some(value) = lower.harmonics.get(harmonic_order - 2)
+    {
+        neighbors.push(*value);
+    }
+    if let Some(value) = lower.harmonics.get(harmonic_order) {
+        neighbors.push(*value);
+    }
+
+    let local_envelope = median(&mut neighbors);
+    let decay_envelope = lower.direct / (harmonic_order as f32).powf(0.85) * 0.45;
+    let expected = local_envelope.max(decay_envelope).max(0.05);
+    let excess = harmonic_value / expected;
+    let score_ratio = upper.score / lower.score.max(1.0e-6);
+    let direct_ratio = upper.direct / lower.direct.max(1.0e-6);
+
+    if harmonic_order == 2 {
+        // Preserve a genuinely doubled octave only when the upper fundamental
+        // rises above the lower note's normal second-harmonic envelope.
+        excess >= 1.10 && score_ratio >= 0.92 && direct_ratio >= 0.95
+    } else {
+        excess >= 1.35 && score_ratio >= 1.03 && direct_ratio >= 0.78
+    }
 }
 
 fn spectral_flux(current: &[f32], previous: &[f32]) -> f32 {
@@ -329,11 +474,10 @@ fn spectral_flux(current: &[f32], previous: &[f32]) -> f32 {
 mod tests {
     use super::*;
 
-    #[test]
-    fn rejects_non_power_of_two_fft_size() {
-        let options = AnalysisOptions {
-            fft_size: 1000,
-            hop_size: 256,
+    fn default_options() -> AnalysisOptions {
+        AnalysisOptions {
+            fft_size: 4096,
+            hop_size: 512,
             min_midi: 36,
             max_midi: 96,
             max_polyphony: 6,
@@ -341,7 +485,103 @@ mod tests {
             min_note_ms: 80.0,
             target_sample_rate: 22_050,
             harmonic_enhancement: true,
-        };
+        }
+    }
+
+    fn add_harmonic_series(
+        spectrum: &mut [f32],
+        midi: u8,
+        amplitude: f32,
+        sample_rate: u32,
+        fft_size: usize,
+    ) {
+        let bin_hz = sample_rate as f32 / fft_size as f32;
+        let fundamental = midi_to_frequency(midi);
+
+        for harmonic in 1..=10 {
+            let frequency = fundamental * harmonic as f32;
+            if frequency >= sample_rate as f32 / 2.0 {
+                break;
+            }
+            let center = (frequency / bin_hz).round() as usize;
+            let value = amplitude / (harmonic as f32).powf(0.72);
+            spectrum[center] += value;
+            if center > 0 {
+                spectrum[center - 1] += value * 0.25;
+            }
+            if center + 1 < spectrum.len() {
+                spectrum[center + 1] += value * 0.25;
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_non_power_of_two_fft_size() {
+        let mut options = default_options();
+        options.fft_size = 1000;
         assert!(validate_options(&options).is_err());
+    }
+
+    #[test]
+    fn suppresses_octave_and_higher_harmonic_false_positives() {
+        let options = default_options();
+        let mut spectrum = vec![0.0; options.fft_size / 2 + 1];
+        add_harmonic_series(
+            &mut spectrum,
+            48,
+            1.0,
+            options.target_sample_rate,
+            options.fft_size,
+        );
+
+        let pitches = detect_frame_pitches(&spectrum, options.target_sample_rate, &options);
+        assert!(pitches.iter().any(|pitch| pitch.midi_note == 48));
+        assert!(!pitches.iter().any(|pitch| pitch.midi_note == 60));
+        assert!(!pitches.iter().any(|pitch| pitch.midi_note == 67));
+    }
+
+    #[test]
+    fn preserves_polyphonic_chord_fundamentals() {
+        let options = default_options();
+        let mut spectrum = vec![0.0; options.fft_size / 2 + 1];
+        for (midi, amplitude) in [(60, 1.0), (64, 0.85), (67, 0.8)] {
+            add_harmonic_series(
+                &mut spectrum,
+                midi,
+                amplitude,
+                options.target_sample_rate,
+                options.fft_size,
+            );
+        }
+
+        let pitches = detect_frame_pitches(&spectrum, options.target_sample_rate, &options);
+        for midi in [60, 64, 67] {
+            assert!(pitches.iter().any(|pitch| pitch.midi_note == midi));
+        }
+        assert!(!pitches.iter().any(|pitch| pitch.midi_note == 72));
+    }
+
+    #[test]
+    fn preserves_strong_independent_octave_doubling() {
+        let options = default_options();
+        let mut spectrum = vec![0.0; options.fft_size / 2 + 1];
+        add_harmonic_series(
+            &mut spectrum,
+            48,
+            1.0,
+            options.target_sample_rate,
+            options.fft_size,
+        );
+        add_harmonic_series(
+            &mut spectrum,
+            60,
+            1.4,
+            options.target_sample_rate,
+            options.fft_size,
+        );
+
+        let pitches = detect_frame_pitches(&spectrum, options.target_sample_rate, &options);
+        assert!(pitches.iter().any(|pitch| pitch.midi_note == 48));
+        assert!(pitches.iter().any(|pitch| pitch.midi_note == 60));
     }
 }
