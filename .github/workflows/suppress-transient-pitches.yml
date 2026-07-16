@@ -27,7 +27,7 @@ jobs:
           from pathlib import Path
           path = Path('crates/harmidi-core/src/analysis.rs')
           text = path.read_text()
-          old = '''            let onset_bonus = frame.onset_strength * 0.10;
+          old = """            let onset_bonus = frame.onset_strength * 0.10;
                       let isolated_penalty = if pitch.temporal_confidence < 0.18 && frame.onset_strength < 0.25 {
                           0.62
                       } else {
@@ -38,9 +38,9 @@ jobs:
                           + onset_bonus)
                           .clamp(0.0, 1.0)
                           * isolated_penalty;
-          '''
-          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines()) + '\n'
-          new = '''            // Broadband impulses can create many pitch-shaped FFT peaks. An
+          """
+          old = old.replace('                      ', '            ')
+          new = """            // Broadband impulses can create many pitch-shaped FFT peaks. An
                       // onset is supportive only when neighboring frames confirm that the
                       // candidate continues after the attack.
                       let persistence = pitch.temporal_confidence;
@@ -57,8 +57,8 @@ jobs:
                           + onset_bonus)
                           .clamp(0.0, 1.0)
                           * transient_penalty;
-          '''
-          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines()) + '\n'
+          """
+          new = new.replace('                      ', '            ')
           if old not in text:
               raise SystemExit('temporal confidence anchor was not found')
           path.write_text(text.replace(old, new, 1))
