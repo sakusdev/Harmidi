@@ -21,6 +21,7 @@ The browser pipeline includes:
 - calibrated confidence components for every detected note
 - onset-aware Viterbi-style temporal note tracking
 - note-level harmonic duplicate removal and polyphony enforcement
+- instrument-aware vocal, bass, piano, guitar, and dense-mix presets
 - piano-roll visualization and Standard MIDI File export
 - analysis in a Web Worker so the UI stays responsive
 
@@ -106,6 +107,7 @@ No server-side audio upload or storage binding is required.
 
 ## Analysis controls
 
+- **Source preset**: adjusts quality, pitch range, polyphony, sensitivity, duration, and reliability stages for general music, vocals, bass, piano, guitar, or dense mixes.
 - **Quality**: Fast uses one FFT resolution; Balanced combines short/primary/long windows; Accurate combines up to 2048/4096/8192/16384-point analyses.
 - **Maximum polyphony**: maximum simultaneous notes retained after temporal cleanup.
 - **Sensitivity**: higher values reject weaker evidence.
@@ -138,9 +140,8 @@ The evaluator reports precision, recall, F1, mean onset error, and mean duration
 ## Roadmap
 
 1. Add optional source separation with WebGPU/ONNX and original-vs-stem consensus.
-2. Add specialized vocal, bass, piano, guitar, and percussion presets.
-3. Add beat-aware quantization and editable piano-roll operations.
-4. Grow the public real-audio benchmark corpus and publish per-category metrics.
+2. Add beat-aware quantization and editable piano-roll operations.
+3. Grow the public real-audio benchmark corpus and publish per-category metrics.
 
 ## License
 
