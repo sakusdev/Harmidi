@@ -106,8 +106,9 @@ pub fn local_peak(magnitudes: &[f32], center: usize, radius: usize) -> (usize, f
         return (0, 0.0);
     }
 
+    let center = center.min(magnitudes.len() - 1);
     let start = center.saturating_sub(radius);
-    let end = (center + radius).min(magnitudes.len() - 1);
+    let end = center.saturating_add(radius).min(magnitudes.len() - 1);
     let mut best_index = start;
     let mut best_value = magnitudes[start];
 

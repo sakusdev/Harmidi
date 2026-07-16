@@ -81,6 +81,14 @@ fn safe_ln(probability: f32) -> f32 {
     probability.clamp(0.001, 0.999).ln()
 }
 
+// Frame confidence is a calibrated detector score, not a Bernoulli
+// probability. Map the detector's useful 0.12-0.45 range into a
+// state probability before applying Viterbi emissions.
+fn observation_probability(observation: f32) -> f32 {
+    let logit = ((observation - 0.18) / 0.16).clamp(-6.0, 6.0);
+    (1.0 / (1.0 + (-logit).exp())).clamp(0.01, 0.99)
+}
+
 fn viterbi_path(frames: &[FrameSummary], observations: &[f32]) -> Vec<bool> {
     let count = observations.len();
     if count == 0 {
@@ -89,12 +97,12 @@ fn viterbi_path(frames: &[FrameSummary], observations: &[f32]) -> Vec<bool> {
 
     let mut back_off = vec![false; count];
     let mut back_on = vec![false; count];
-    let first = observations[0];
+    let first = observation_probability(observations[0]);
     let mut off_score = safe_ln(1.0 - first);
-    let mut on_score = safe_ln(first) - 1.35 + frames[0].onset_strength * 1.15;
+    let mut on_score = safe_ln(first) - 1.10 + frames[0].onset_strength * 1.05;
 
     for frame_index in 1..count {
-        let probability = observations[frame_index];
+        let probability = observation_probability(observations[frame_index]);
         let onset = frames[frame_index].onset_strength;
         let emission_on = safe_ln(0.025 + probability * 0.95);
         let emission_off = safe_ln(0.025 + (1.0 - probability) * 0.95);
@@ -107,9 +115,9 @@ fn viterbi_path(frames: &[FrameSummary], observations: &[f32]) -> Vec<bool> {
             (off_from_off + emission_off, false)
         };
 
-        let start_penalty = 1.48 - onset * 1.18;
+        let start_penalty = 1.12 - onset * 0.98;
         let on_from_off = off_score - start_penalty;
-        let continuity_bonus = if probability >= 0.18 { 0.14 } else { -0.16 };
+        let continuity_bonus = if probability >= 0.50 { 0.18 } else { -0.12 };
         let on_from_on = on_score + continuity_bonus;
         let (next_on, previous_on_was_on) = if on_from_on >= on_from_off {
             (on_from_on + emission_on, true)
@@ -279,7 +287,7 @@ fn finalize_note(
     } else {
         0.0
     };
-    let component_denominator = sums.weight.max(1.0);
+    let component_denominator = sample_count.max(1.0);
 
     notes.push(DetectedNote {
         midi_note: midi,
