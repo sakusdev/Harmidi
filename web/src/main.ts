@@ -34,6 +34,16 @@ app.innerHTML = `
   <section class="workspace">
     <aside class="panel controls">
       <h2>解析設定</h2>
+      <label>音源プリセット
+        <select id="preset">
+          <option value="general" selected>一般楽曲</option>
+          <option value="vocal">ボーカル / 単旋律</option>
+          <option value="bass">ベース</option>
+          <option value="piano">ピアノ / 鍵盤</option>
+          <option value="guitar">ギター</option>
+          <option value="dense">高密度ミックス</option>
+        </select>
+      </label>
       <label>解析品質
         <select id="quality">
           <option value="fast">高速</option>
@@ -116,6 +126,7 @@ const diagnostics = requireElement<HTMLDivElement>('#diagnostics');
 const spinner = requireElement<HTMLDivElement>('#spinner');
 const canvas = requireElement<HTMLCanvasElement>('#piano-roll');
 const noteList = requireElement<HTMLDivElement>('#note-list');
+const preset = requireElement<HTMLSelectElement>('#preset');
 const polyphony = requireElement<HTMLInputElement>('#polyphony');
 const polyphonyValue = requireElement<HTMLOutputElement>('#polyphony-value');
 const sensitivity = requireElement<HTMLInputElement>('#sensitivity');
