@@ -457,6 +457,11 @@ fn detect_frame_pitches(
     options: &AnalysisOptions,
 ) -> Vec<FramePitch> {
     let midi_count = options.max_midi as usize - options.min_midi as usize + 1;
+    let original_spectrum = spectrograms[primary_index].frame(frame_index);
+    let tonality = spectral_tonality(original_spectrum);
+    if tonality < 0.065 {
+        return Vec::new();
+    }
     let mut evidence = Vec::with_capacity(midi_count);
 
     for midi in options.min_midi..=options.max_midi {
@@ -559,6 +564,24 @@ fn detect_frame_pitches(
         .into_iter()
         .map(|candidate| evidence_to_frame_pitch(candidate, primary_spectrum, primary))
         .collect()
+}
+
+fn spectral_tonality(spectrum: &[f32]) -> f32 {
+    if spectrum.len() < 2 {
+        return 0.0;
+    }
+    let values = &spectrum[1..];
+    let arithmetic = values.iter().copied().sum::<f32>() / values.len() as f32;
+    if arithmetic <= 1.0e-12 {
+        return 0.0;
+    }
+    let log_mean = values
+        .iter()
+        .map(|value| (value.max(1.0e-12)).ln())
+        .sum::<f32>()
+        / values.len() as f32;
+    let flatness = (log_mean.exp() / arithmetic).clamp(0.0, 1.0);
+    (1.0 - flatness).clamp(0.0, 1.0)
 }
 
 fn score_pitch_on_spectrum(
@@ -902,6 +925,16 @@ mod tests {
         let mut options = default_options();
         options.fft_size = 1000;
         assert!(validate_options(&options).is_err());
+    }
+
+    #[test]
+    fn spectral_tonality_rejects_flat_broadband_energy() {
+        let flat = vec![1.0_f32; 1024];
+        let mut peaked = vec![0.001_f32; 1024];
+        peaked[120] = 1.0;
+        peaked[240] = 0.5;
+        assert!(spectral_tonality(&flat) < 0.01);
+        assert!(spectral_tonality(&peaked) > 0.50);
     }
 
     #[test]
