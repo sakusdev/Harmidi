@@ -1,0 +1,5 @@
+[
+  { "midiNote": 60, "startSeconds": 0.10, "endSeconds": 0.75, "confidence": 1.0 },
+  { "midiNote": 64, "startSeconds": 0.10, "endSeconds": 0.75, "confidence": 1.0 },
+  { "midiNote": 67, "startSeconds": 0.10, "endSeconds": 0.75, "confidence": 1.0 }
+]
