@@ -1,0 +1,101 @@
+name: Apply spectral tonality gate
+
+on:
+  push:
+    branches:
+      - agent/reliability-overhaul
+    paths:
+      - .github/workflows/apply-tonality-gate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[tonality gate]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Add broadband transient rejection
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('crates/harmidi-core/src/analysis.rs')
+          text = path.read_text()
+
+          anchor = '''    let midi_count = options.max_midi as usize - options.min_midi as usize + 1;
+              let mut evidence = Vec::with_capacity(midi_count);
+          '''.replace('              ', '    ')
+          replacement = '''    let midi_count = options.max_midi as usize - options.min_midi as usize + 1;
+              let original_spectrum = spectrograms[primary_index].frame(frame_index);
+              let tonality = spectral_tonality(original_spectrum);
+              if tonality < 0.065 {
+                  return Vec::new();
+              }
+              let mut evidence = Vec::with_capacity(midi_count);
+          '''.replace('              ', '    ')
+          if anchor not in text:
+              raise SystemExit('detect-frame anchor not found')
+          text = text.replace(anchor, replacement, 1)
+
+          function_anchor = '''fn score_pitch_on_spectrum(
+          '''
+          tonality_function = '''fn spectral_tonality(spectrum: &[f32]) -> f32 {
+              if spectrum.len() < 2 {
+                  return 0.0;
+              }
+              let values = &spectrum[1..];
+              let arithmetic = values.iter().copied().sum::<f32>() / values.len() as f32;
+              if arithmetic <= 1.0e-12 {
+                  return 0.0;
+              }
+              let log_mean = values
+                  .iter()
+                  .map(|value| (value.max(1.0e-12)).ln())
+                  .sum::<f32>()
+                  / values.len() as f32;
+              let flatness = (log_mean.exp() / arithmetic).clamp(0.0, 1.0);
+              (1.0 - flatness).clamp(0.0, 1.0)
+          }
+
+          fn score_pitch_on_spectrum(
+          '''
+          tonality_function = tonality_function.replace('              ', '    ')
+          if function_anchor not in text:
+              raise SystemExit('score function anchor not found')
+          text = text.replace(function_anchor, tonality_function, 1)
+
+          test_anchor = '''    #[test]
+              fn detects_fundamental_without_registering_its_harmonics() {
+          '''.replace('              ', '    ')
+          test_code = '''    #[test]
+              fn spectral_tonality_rejects_flat_broadband_energy() {
+                  let flat = vec![1.0_f32; 1024];
+                  let mut peaked = vec![0.001_f32; 1024];
+                  peaked[120] = 1.0;
+                  peaked[240] = 0.5;
+                  assert!(spectral_tonality(&flat) < 0.01);
+                  assert!(spectral_tonality(&peaked) > 0.50);
+              }
+
+              #[test]
+              fn detects_fundamental_without_registering_its_harmonics() {
+          '''.replace('              ', '    ')
+          if test_anchor not in text:
+              raise SystemExit('test anchor not found')
+          path.write_text(text.replace(test_anchor, test_code, 1))
+
+      - name: Remove workflow and commit
+        shell: bash
+        run: |
+          rm .github/workflows/apply-tonality-gate.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Reject broadband transient pitch candidates [tonality gate]"
+          git push origin HEAD:${{ github.ref_name }}
