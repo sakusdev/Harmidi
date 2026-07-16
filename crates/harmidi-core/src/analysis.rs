@@ -194,6 +194,7 @@ pub fn analyze(
     }
 
     let frame_rms = compute_frame_rms(&samples, options.fft_size, options.hop_size, frame_count);
+    let frame_crest = compute_frame_crest(&samples, options.fft_size, options.hop_size, frame_count);
     let silence_floor = adaptive_silence_floor(&frame_rms);
     let mut raw_onsets = compute_onsets(&spectrograms[primary_index], &percussive_energy);
     normalize_onsets(&mut raw_onsets);
@@ -201,7 +202,9 @@ pub fn analyze(
     let mut frames = Vec::with_capacity(frame_count);
     let hop_seconds = options.hop_size as f32 / analyzed_rate as f32;
     for frame_index in 0..frame_count {
-        let pitches = if frame_rms[frame_index] >= silence_floor {
+        let transient_only = frame_crest[frame_index] >= 24.0
+            && raw_onsets[frame_index] >= 0.45;
+        let pitches = if frame_rms[frame_index] >= silence_floor && !transient_only {
             detect_frame_pitches(
                 frame_index,
                 &primary_harmonic,
@@ -352,6 +355,24 @@ fn compute_frame_rms(
             let start = frame_index * hop_size;
             let end = (start + fft_size).min(samples.len());
             rms(&samples[start.min(samples.len())..end])
+        })
+        .collect()
+}
+
+fn compute_frame_crest(
+    samples: &[f32],
+    fft_size: usize,
+    hop_size: usize,
+    frame_count: usize,
+) -> Vec<f32> {
+    (0..frame_count)
+        .map(|frame_index| {
+            let start = frame_index * hop_size;
+            let end = (start + fft_size).min(samples.len());
+            let frame = &samples[start.min(samples.len())..end];
+            let frame_rms = rms(frame).max(1.0e-9);
+            let peak = frame.iter().map(|sample| sample.abs()).fold(0.0_f32, f32::max);
+            peak / frame_rms
         })
         .collect()
 }
@@ -925,6 +946,19 @@ mod tests {
         let mut options = default_options();
         options.fft_size = 1000;
         assert!(validate_options(&options).is_err());
+    }
+
+    #[test]
+    fn crest_factor_separates_impulse_from_tone() {
+        let mut impulse = vec![0.0_f32; 4096];
+        impulse[1024] = 1.0;
+        let tone: Vec<f32> = (0..4096)
+            .map(|index| (2.0 * std::f32::consts::PI * 440.0 * index as f32 / 22_050.0).sin())
+            .collect();
+        let impulse_crest = impulse.iter().map(|sample| sample.abs()).fold(0.0_f32, f32::max) / rms(&impulse);
+        let tone_crest = tone.iter().map(|sample| sample.abs()).fold(0.0_f32, f32::max) / rms(&tone);
+        assert!(impulse_crest > 24.0);
+        assert!(tone_crest < 2.0);
     }
 
     #[test]
