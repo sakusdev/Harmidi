@@ -816,17 +816,23 @@ fn refine_temporal_confidence(frames: &mut [FrameSummary], max_polyphony: usize,
                 support += neighbor;
             }
             pitch.temporal_confidence = (support / possible.max(1.0)).clamp(0.0, 1.0);
-            let onset_bonus = frame.onset_strength * 0.10;
-            let isolated_penalty = if pitch.temporal_confidence < 0.18 && frame.onset_strength < 0.25 {
-                0.62
+            // Broadband impulses can create many pitch-shaped FFT peaks. An
+            // onset is supportive only when neighboring frames confirm that the
+            // candidate continues after the attack.
+            let persistence = pitch.temporal_confidence;
+            let onset_bonus = frame.onset_strength * 0.08 * persistence;
+            let transient_penalty = if frame.onset_strength >= 0.55 && persistence < 0.24 {
+                0.28
+            } else if persistence < 0.15 {
+                0.58
             } else {
                 1.0
             };
             pitch.confidence = (pitch.confidence * 0.74
-                + pitch.temporal_confidence * 0.24
+                + persistence * 0.24
                 + onset_bonus)
                 .clamp(0.0, 1.0)
-                * isolated_penalty;
+                * transient_penalty;
         }
 
         let keep_threshold = (0.24 - sensitivity * 0.10).clamp(0.10, 0.24);
