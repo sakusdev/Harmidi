@@ -1,0 +1,116 @@
+name: Finalize reliability UI
+
+on:
+  push:
+    branches:
+      - agent/reliability-overhaul
+    paths:
+      - .github/workflows/finalize-reliability-ui.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[ui finalized]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Connect source presets
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('web/src/main.ts')
+          text = path.read_text()
+          anchor = '''sensitivity.addEventListener('input', () => {
+            sensitivityValue.value = `${sensitivity.value}%`;
+          });
+          '''
+          addition = '''sensitivity.addEventListener('input', () => {
+            sensitivityValue.value = `${sensitivity.value}%`;
+          });
+
+          type Preset = {
+            quality: AnalysisQuality;
+            polyphony: number;
+            sensitivity: number;
+            minMidi: number;
+            maxMidi: number;
+            minNoteMs: number;
+            hpss: boolean;
+            multiresolution: boolean;
+            residual: boolean;
+            temporal: boolean;
+          };
+
+          const generalPreset: Preset = {
+            quality: 'balanced', polyphony: 6, sensitivity: 58,
+            minMidi: 36, maxMidi: 96, minNoteMs: 90,
+            hpss: true, multiresolution: true, residual: true, temporal: true,
+          };
+
+          const presets: Record<string, Preset> = {
+            general: generalPreset,
+            vocal: {
+              quality: 'balanced', polyphony: 1, sensitivity: 48,
+              minMidi: 45, maxMidi: 88, minNoteMs: 65,
+              hpss: true, multiresolution: true, residual: false, temporal: true,
+            },
+            bass: {
+              quality: 'accurate', polyphony: 1, sensitivity: 48,
+              minMidi: 24, maxMidi: 64, minNoteMs: 85,
+              hpss: true, multiresolution: true, residual: false, temporal: true,
+            },
+            piano: {
+              quality: 'accurate', polyphony: 10, sensitivity: 57,
+              minMidi: 21, maxMidi: 108, minNoteMs: 55,
+              hpss: true, multiresolution: true, residual: true, temporal: true,
+            },
+            guitar: {
+              quality: 'balanced', polyphony: 6, sensitivity: 56,
+              minMidi: 40, maxMidi: 88, minNoteMs: 65,
+              hpss: true, multiresolution: true, residual: true, temporal: true,
+            },
+            dense: {
+              quality: 'accurate', polyphony: 8, sensitivity: 66,
+              minMidi: 32, maxMidi: 100, minNoteMs: 105,
+              hpss: true, multiresolution: true, residual: true, temporal: true,
+            },
+          };
+
+          preset.addEventListener('change', () => {
+            const selected = presets[preset.value] ?? generalPreset;
+            requireElement<HTMLSelectElement>('#quality').value = selected.quality;
+            polyphony.value = String(selected.polyphony);
+            polyphonyValue.value = polyphony.value;
+            sensitivity.value = String(selected.sensitivity);
+            sensitivityValue.value = `${selected.sensitivity}%`;
+            requireElement<HTMLInputElement>('#min-midi').value = String(selected.minMidi);
+            requireElement<HTMLInputElement>('#max-midi').value = String(selected.maxMidi);
+            requireElement<HTMLInputElement>('#min-note').value = String(selected.minNoteMs);
+            requireElement<HTMLInputElement>('#hpss').checked = selected.hpss;
+            requireElement<HTMLInputElement>('#multiresolution').checked = selected.multiresolution;
+            requireElement<HTMLInputElement>('#residual').checked = selected.residual;
+            requireElement<HTMLInputElement>('#temporal').checked = selected.temporal;
+          });
+          '''
+          if anchor not in text:
+              raise SystemExit('preset insertion anchor not found')
+          path.write_text(text.replace(anchor, addition, 1))
+
+      - name: Remove workflow and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/finalize-reliability-ui.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Connect instrument-aware presets [ui finalized]"
+          git push origin HEAD:${{ github.ref_name }}
