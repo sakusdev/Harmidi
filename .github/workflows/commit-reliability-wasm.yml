@@ -1,0 +1,57 @@
+name: Commit reliability WASM
+
+on:
+  push:
+    branches:
+      - agent/reliability-overhaul
+    paths:
+      - .github/workflows/commit-reliability-wasm.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: commit-reliability-wasm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    if: ${{ !contains(github.event.head_commit.message, '[reliability wasm]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/harmidi-core
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked --quiet
+
+      - name: Generate browser WASM package
+        run: npm run wasm:build
+
+      - name: Commit generated package
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/commit-reliability-wasm.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f web/public/pkg
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Generated WASM package is already current."
+            exit 0
+          fi
+          git commit -m "Update reliability WASM package [reliability wasm]"
+          git push origin HEAD:${{ github.ref_name }}
